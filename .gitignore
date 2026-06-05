@@ -1,0 +1,64 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editors / IDEs
+.idea/
+.vscode/
+*.iml
+
+# Local config and secrets
+local.properties
+*.pem
+*.key
+*.crt
+*.jks
+*.keystore
+.env
+.env.*
+!.env.example
+
+# Android / Gradle
+.gradle/
+build/
+*/build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.ap_
+*.aab
+*.dex
+*.class
+
+# Kotlin
+.kotlin/
+*.kotlin_module
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Logs
+*.log
+
+# Local server data / generated assets
+fastapi_server/photos/
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo

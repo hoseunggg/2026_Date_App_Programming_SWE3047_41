@@ -1,0 +1,31 @@
+# OS junk
+.DS_Store
+
+# Editors / IDEs
+.idea/
+*.iml
+
+# Local config and secrets
+local.properties
+*.jks
+*.keystore
+*.pem
+.env
+.env.*
+!.env.example
+
+# Gradle / Android build outputs
+.gradle/
+build/
+*/build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+
+# Kotlin local state
+.kotlin/
+
+# Logs
+*.log
