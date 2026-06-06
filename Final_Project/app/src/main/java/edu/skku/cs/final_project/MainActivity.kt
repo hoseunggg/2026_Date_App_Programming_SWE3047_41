@@ -55,6 +55,9 @@ class MainActivity : AppCompatActivity() {
     private var selectedMood = "조용한"
     private var searchStep = 0
     private val savedCourseIds = mutableSetOf("hangang", "jongno")
+    private val recentCourses = mutableListOf<CourseUi>()
+    private val knownCourses = mutableMapOf<String, CourseUi>()
+    private var selectedSearchRegion = "전체"
 
     private lateinit var pageHost: FrameLayout
     private lateinit var bottomBar: LinearLayout
@@ -66,6 +69,7 @@ class MainActivity : AppCompatActivity() {
     private var pendingNearbyRoot: LinearLayout? = null
     private var selectedBudget = "3~5만원"
     private var selectedTransport = "도보"
+    private var aiSessionId = 0
 
     private val moodHeroes = mapOf(
         "조용한" to CourseUi(
@@ -86,6 +90,11 @@ class MainActivity : AppCompatActivity() {
                 MapStop("성수 카페거리", "대화하기 좋은 조용한 공간", 37.5446, 127.0557),
                 MapStop("서울숲", "걷기 좋은 산책과 포토 스팟", 37.5444, 127.0374),
                 MapStop("뚝섬역", "부담 없는 캐주얼 다이닝", 37.5472, 127.0474)
+            ),
+            stopImageUrls = listOf(
+                photoUrl("3754152061270614308_1.jpg"),
+                photoUrl("3754196441270385663_1.jpg"),
+                photoUrl("3754721721270483803_1.jpeg")
             )
         ),
         "맛집 중심" to CourseUi(
@@ -102,6 +111,11 @@ class MainActivity : AppCompatActivity() {
                 MapStop("광장시장", "먹거리 탐방", 37.5700, 126.9996),
                 MapStop("종로3가 골목", "가벼운 산책", 37.5705, 126.9919),
                 MapStop("익선동 카페", "디저트와 쉬는 시간", 37.5742, 126.9899)
+            ),
+            stopImageUrls = listOf(
+                photoUrl("3757016611269990691_1.jpg"),
+                photoUrl("3757878171269800492_1.jpg"),
+                photoUrl("3757784731269729106_1.png")
             )
         ),
         "사진 찍기" to CourseUi(
@@ -118,6 +132,11 @@ class MainActivity : AppCompatActivity() {
                 MapStop("K현대미술관", "전시 관람", 37.5243, 127.0398),
                 MapStop("가로수길", "거리 구경", 37.5206, 127.0226),
                 MapStop("신사동 디저트 카페", "마무리", 37.5190, 127.0234)
+            ),
+            stopImageUrls = listOf(
+                photoUrl("3752429861270390957_1.jpg"),
+                photoUrl("3751970431270231136_1.jpg"),
+                photoUrl("3752397361270258064_1.jpg")
             )
         ),
         "야경" to CourseUi(
@@ -134,6 +153,11 @@ class MainActivity : AppCompatActivity() {
                 MapStop("여의도 한강공원", "노을 보기", 37.5284, 126.9330),
                 MapStop("여의도 물빛광장", "야경 산책", 37.5260, 126.9348),
                 MapStop("여의나루역 근처 식당", "저녁", 37.5271, 126.9329)
+            ),
+            stopImageUrls = listOf(
+                photoUrl("3752632321269348268_1.jpeg"),
+                photoUrl("3752612901269223770_1.jpg"),
+                photoUrl("3752591701269152678_1.jpg")
             )
         ),
         "가성비" to CourseUi(
@@ -150,6 +174,11 @@ class MainActivity : AppCompatActivity() {
                 MapStop("경복궁", "궁궐 산책", 37.5796, 126.9770),
                 MapStop("광화문광장", "사진 스팟", 37.5726, 126.9769),
                 MapStop("광장시장", "간단한 식사", 37.5700, 126.9996)
+            ),
+            stopImageUrls = listOf(
+                photoUrl("3757884081269770162_1.jpg"),
+                photoUrl("3757405331269768908_1.jpg"),
+                photoUrl("3757016611269990691_1.jpg")
             )
         )
     )
@@ -349,6 +378,7 @@ class MainActivity : AppCompatActivity() {
         }
 
     private fun aiPage(): View {
+        aiSessionId += 1
         searchStep = 0
         val scroll = ScrollView(this).apply {
             isFillViewport = true
@@ -360,7 +390,12 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(20), dp(16), dp(20), dp(72))
         }
         scroll.addView(root)
-        root.addView(text("AI 추천", 14f, LIGHT_TEXT))
+        root.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(text("AI 추천", 14f, LIGHT_TEXT), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(mapButton("초기화") { resetAiChat() })
+        })
         root.addView(text("지도 위에서 코스를 만들어요", 24f, INK, true))
         root.addView(aiMapPreview(), lpMatch(dp(220), top = 18))
         root.addView(makerCard(), lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, top = 18))
@@ -534,7 +569,7 @@ class MainActivity : AppCompatActivity() {
                 chatFlow.addView(chatActionButton("코스 생성하기") { button ->
                     button.text = "생성 중..."
                     button.isEnabled = false
-                    requestCourse()
+                    requestCourse(button)
                 }, lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, bottom = 10))
                 generateButton.visibility = View.GONE
             }
@@ -543,8 +578,9 @@ class MainActivity : AppCompatActivity() {
         scrollChatToBottom()
     }
 
-    private fun requestCourse() {
+    private fun requestCourse(statusButton: TextView? = null) {
         val prompt = courseInput.text.toString().ifBlank { "강남에서 조용한 첫 데이트 추천해줘" }
+        val requestSessionId = aiSessionId
         generateButton.isEnabled = false
         generateButton.text = "생성 중..."
 
@@ -554,21 +590,26 @@ class MainActivity : AppCompatActivity() {
                     CourseRequest(prompt = prompt, mood = selectedMood, budget = selectedBudget, transport = selectedTransport)
                 )
                 runOnUiThread {
+                    if (requestSessionId != aiSessionId) return@runOnUiThread
                     DateCourseRepository.course = course
                     chatFlow.addView(chatCourseCarousel(course), lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, bottom = 14))
-                    generateButton.text = "다시 생성하기"
+                    statusButton?.text = "생성 완료"
+                    generateButton.text = "생성 완료"
                     generateButton.isEnabled = true
                     generateButton.visibility = View.GONE
+                    chatFlow.addView(chatActionButton("다시 생성하기") {
+                        resetAiChat()
+                    }, lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, bottom = 10))
                     scrollChatToBottom()
                 }
             } catch (error: Exception) {
                 runOnUiThread {
+                    if (requestSessionId != aiSessionId) return@runOnUiThread
                     Toast.makeText(this, "서버 통신 실패: ${error.message}", Toast.LENGTH_LONG).show()
+                    statusButton?.text = "생성 실패"
                     chatFlow.addView(chatBubble("서버 연결이 잠깐 실패했어요. 다시 시도해볼까요?", false), lpWrap(bottom = 10))
-                    chatFlow.addView(chatActionButton("다시 생성하기") { button ->
-                        button.text = "생성 중..."
-                        button.isEnabled = false
-                        requestCourse()
+                    chatFlow.addView(chatActionButton("다시 생성하기") {
+                        resetAiChat()
                     }, lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, bottom = 10))
                     generateButton.text = "코스 생성하기"
                     generateButton.isEnabled = true
@@ -579,13 +620,15 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
+    private fun resetAiChat() {
+        selectedBudget = "3~5만원"
+        selectedMood = "조용한"
+        selectedTransport = "도보"
+        renderPage("ai")
+    }
+
     private fun chatCourseCarousel(course: DateCourse): View {
-        val generated = course.toCourseUi("generated")
-        val localRecommendations = moodHeroes.values
-            .filter { it.id != generated.id }
-            .sortedWith(compareByDescending<CourseUi> { it.mood == selectedMood }.thenBy { it.title })
-            .take(4)
-        val recommendations = listOf(generated) + localRecommendations
+        val recommendations = course.toCourseUiOptions()
 
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -622,7 +665,7 @@ class MainActivity : AppCompatActivity() {
             addView(text(course.title, 16f, INK, true).apply {
                 maxLines = 2
             }, lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT))
-            addView(text("${course.area} · ${course.time}", 13f, ACCENT, true).apply {
+            addView(text("${course.area} · 장소 ${course.stops.size}곳", 13f, ACCENT, true).apply {
                 maxLines = 1
             }, lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, top = 6))
             addView(text(course.description, 14f, MUTED).apply {
@@ -652,7 +695,7 @@ class MainActivity : AppCompatActivity() {
                 background = rounded(SOFT, 24)
                 addView(text("⌕", 17f, MUTED, true))
                 addView(EditText(context).apply {
-                    hint = "지역, 장소, 분위기 검색"
+                    hint = "지역 검색"
                     textSize = 14f
                     setSingleLine(true)
                     imeOptions = EditorInfo.IME_ACTION_SEARCH
@@ -680,12 +723,19 @@ class MainActivity : AppCompatActivity() {
                 isHorizontalScrollBarEnabled = false
                 addView(LinearLayout(context).apply {
                     orientation = LinearLayout.HORIZONTAL
-                    listOf("전체", "카페", "전시", "공원", "맛집", "야경").forEachIndexed { index, label ->
-                        addView(filterChip(label, index == 0).apply {
+                    val regionChips = mutableListOf<TextView>()
+                    listOf("전체", "서울", "종로구", "성동구", "마포구", "강남구").forEach { label ->
+                        val regionChip = filterChip(label, label == selectedSearchRegion).apply {
                             setOnClickListener {
+                                selectedSearchRegion = label
+                                regionChips.forEach { chip ->
+                                    styleFilterChip(chip, chip.text.toString() == selectedSearchRegion)
+                                }
                                 requestPlaceSearchResults(results, if (label == "전체") "" else label)
                             }
-                        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(38)).apply {
+                        }
+                        regionChips.add(regionChip)
+                        addView(regionChip, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(38)).apply {
                             marginEnd = dp(8)
                         })
                     }
@@ -704,11 +754,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         container.removeAllViews()
-        container.addView(text("'$normalized' 기준으로 가까운 장소를 찾는 중...", 14f, MUTED), lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, top = 18))
+        container.addView(text("'$normalized' 지역의 장소를 찾는 중...", 14f, MUTED), lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, top = 18))
 
         Thread {
             runCatching {
-                FastApiClient.searchPlaces(normalized, limit = 12)
+                FastApiClient.searchPlaces(normalized, limit = 10)
             }.onSuccess { places ->
                 runOnUiThread {
                     renderSearchPlaces(container, normalized, places)
@@ -717,7 +767,6 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     container.removeAllViews()
                     container.addView(text("검색 요청 실패: ${error.message}", 13f, MUTED), lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, top = 18))
-                    renderSearchResults(container, normalized)
                 }
             }
         }.start()
@@ -726,13 +775,11 @@ class MainActivity : AppCompatActivity() {
     private fun renderSearchPlaces(container: LinearLayout, query: String, places: List<NearbyPlace>) {
         container.removeAllViews()
         if (places.isEmpty()) {
-            container.addView(text("'$query' 주변에서 장소를 찾지 못했어요.", 14f, MUTED), lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, top = 18))
+            container.addView(text("'$query' 지역에서 장소를 찾지 못했어요.", 14f, MUTED), lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, top = 18))
             return
         }
 
-        container.addView(text("'$query' 주변 가까운 장소", 14f, LIGHT_TEXT, true), lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, top = 18))
-        val searchCourse = places.toSearchCourse(query)
-        container.addView(courseRow(searchCourse), lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, top = 12))
+        container.addView(text("'$query' 지역 검색 결과", 14f, LIGHT_TEXT, true), lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, top = 18))
         places.forEach { place ->
             container.addView(nearbyPlaceRow(place), lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, top = 12))
         }
@@ -741,18 +788,12 @@ class MainActivity : AppCompatActivity() {
     private fun renderSearchResults(container: LinearLayout, query: String) {
         container.removeAllViews()
         val normalized = query.trim()
-        val courses = moodHeroes.values
-            .filter { course ->
-                normalized.isBlank() ||
-                    course.title.contains(normalized, ignoreCase = true) ||
-                    course.area.contains(normalized, ignoreCase = true) ||
-                    course.mood.contains(normalized, ignoreCase = true) ||
-                    course.stops.any { it.first.contains(normalized, ignoreCase = true) || it.second.contains(normalized, ignoreCase = true) }
-            }
-            .ifEmpty { listOf(currentHero()) }
-        courses.take(6).forEach { course ->
-            container.addView(suggestionRow(course), lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, top = 12))
+        val message = if (normalized.isBlank()) {
+            "지역을 입력하면 해당 지역의 장소를 보여드려요."
+        } else {
+            "'$normalized' 지역에서 장소를 찾지 못했어요."
         }
+        container.addView(text(message, 14f, MUTED), lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, top = 18))
     }
 
     private fun List<NearbyPlace>.toSearchCourse(query: String): CourseUi {
@@ -764,15 +805,16 @@ class MainActivity : AppCompatActivity() {
         }
         return CourseUi(
             id = "search-$query-${stops.joinToString("-") { it.kakaoId ?: it.title }}",
-            title = "$query 주변 데이트 코스",
+            title = "$query 지역 데이트 코스",
             area = stops.firstOrNull()?.city?.ifBlank { query } ?: query,
-            description = "검색한 지역 좌표를 기준으로 가까운 장소 ${stops.size}곳을 거리순으로 연결했습니다.",
-            time = stops.firstOrNull()?.let { "가장 가까운 곳 ${formatDistance(it.distanceMeters)}" } ?: "검색 결과",
+            description = "검색한 지역 키워드가 포함된 장소 ${stops.size}곳을 골라 연결했습니다.",
+            time = "지역 검색 결과",
             budget = "검색 장소",
             mood = "검색",
             imageUrl = stops.firstOrNull()?.imageUrl ?: currentHero().imageUrl,
             stops = stops.map { it.title to it.category }.ifEmpty { currentHero().stops },
-            routeStops = validRouteStops
+            routeStops = validRouteStops,
+            stopImageUrls = stops.map { it.imageUrl ?: currentHero().imageUrl }
         )
     }
 
@@ -915,7 +957,8 @@ class MainActivity : AppCompatActivity() {
             mood = "내 주변",
             imageUrl = stops.first().imageUrl ?: currentHero().imageUrl,
             stops = stops.map { it.title to it.category },
-            routeStops = validRouteStops
+            routeStops = validRouteStops,
+            stopImageUrls = stops.map { it.imageUrl ?: currentHero().imageUrl }
         )
     }
 
@@ -930,7 +973,12 @@ class MainActivity : AppCompatActivity() {
             addView(LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 addView(text(place.title, 15f, INK, true))
-                addView(text("${formatDistance(place.distanceMeters)} · ${place.category}", 14f, ACCENT, true), lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, top = 4))
+                val meta = if (place.distanceMeters > 0) {
+                    "${formatDistance(place.distanceMeters)} · ${place.category}"
+                } else {
+                    listOf(place.city, place.category).filter { it.isNotBlank() }.joinToString(" · ")
+                }
+                addView(text(meta, 14f, ACCENT, true), lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, top = 4))
                 addView(text(place.address, 13f, MUTED).apply {
                     maxLines = 2
                 }, lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, top = 4))
@@ -954,7 +1002,8 @@ class MainActivity : AppCompatActivity() {
             stops = listOf(title to category),
             routeStops = listOfNotNull(
                 if (latitude != null && longitude != null) MapStop(title, category, latitude, longitude) else null
-            )
+            ),
+            stopImageUrls = listOf(imageUrl ?: currentHero().imageUrl)
         )
 
     private fun formatDistance(meters: Int): String =
@@ -1008,9 +1057,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun savedPage(): View {
         val (scroll, root) = basePageHeader("내 데이트", "코스 보관함")
-        root.addView(sectionTitle("최근 본 코스", "2개"), lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, top = 26))
-        listOf("seongsu", "gangnam").mapNotNull { courseById(it) }.forEach { course ->
-            root.addView(courseRow(course), lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, top = 12))
+        root.addView(sectionTitle("최근 본 코스", "${recentCourses.size}개"), lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, top = 26))
+        if (recentCourses.isEmpty()) {
+            root.addView(text("아직 최근에 본 코스가 없어요.", 14f, MUTED), lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, top = 14))
+        } else {
+            recentCourses.forEach { course ->
+                root.addView(courseRow(course), lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, top = 12))
+            }
         }
         root.addView(sectionTitle("저장한 코스", "${savedCourseIds.size}개"), lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, top = 28))
         savedCourseIds.mapNotNull { courseById(it) }.forEach { course ->
@@ -1043,9 +1096,18 @@ class MainActivity : AppCompatActivity() {
         }
 
     private fun showCourseDetail(course: CourseUi) {
+        knownCourses[course.id] = course
+        recentCourses.removeAll { it.id == course.id }
+        recentCourses.add(0, course)
+        while (recentCourses.size > MAX_RECENT_COURSES) {
+            recentCourses.removeAt(recentCourses.lastIndex)
+        }
         Dialog(this).apply {
             requestWindowFeature(Window.FEATURE_NO_TITLE)
             setContentView(detailContent(course, this))
+            setOnDismissListener {
+                if (currentPage == "saved") renderPage("saved")
+            }
             show()
             window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
             window?.setBackgroundDrawableResource(android.R.color.transparent)
@@ -1096,7 +1158,7 @@ class MainActivity : AppCompatActivity() {
                         setTextColor(if (savedCourseIds.contains(course.id)) Color.WHITE else ACCENT)
                         background = rounded(if (savedCourseIds.contains(course.id)) ACCENT else 0xeeffffff.toInt(), 999)
                         setOnClickListener {
-                            toggleSaved(course.id)
+                            toggleSaved(course)
                             val saved = savedCourseIds.contains(course.id)
                             text = if (saved) "♥" else "♡"
                             setTextColor(if (saved) Color.WHITE else ACCENT)
@@ -1121,10 +1183,17 @@ class MainActivity : AppCompatActivity() {
                     addView(text(course.description, 14f, MUTED).apply {
                         setLineSpacing(dp(3).toFloat(), 1f)
                     })
-                    addView(detailMeta(course), lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, top = 16))
                     addView(routeStrip(course), lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, top = 18))
                     course.stops.forEachIndexed { index, stop ->
-                        addView(detailStop(course, index + 1, stop.first, stop.second), lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, top = 10))
+                        addView(
+                            detailStop(
+                                index + 1,
+                                stop.first,
+                                stop.second,
+                                course.stopImageUrls.getOrNull(index) ?: course.imageUrl
+                            ),
+                            lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, top = 10)
+                        )
                     }
                 })
             })
@@ -1277,23 +1346,7 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    private fun detailMeta(course: CourseUi): View =
-        LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            listOf("시간" to course.time, "예산" to course.budget, "분위기" to course.mood).forEach { item ->
-                addView(LinearLayout(context).apply {
-                    orientation = LinearLayout.VERTICAL
-                    setPadding(dp(10), dp(12), dp(10), dp(12))
-                    background = rounded(0xfffafafa.toInt(), 18, SOFT, 1)
-                    addView(text(item.first, 11f, LIGHT_TEXT, true))
-                    addView(text(item.second, 13f, INK, true), lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, top = 4))
-                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    marginEnd = dp(8)
-                })
-            }
-        }
-
-    private fun detailStop(course: CourseUi, step: Int, title: String, desc: String): View =
+    private fun detailStop(step: Int, title: String, desc: String, imageUrl: String): View =
         LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(14), dp(14), dp(14), dp(14))
@@ -1306,7 +1359,7 @@ class MainActivity : AppCompatActivity() {
                 orientation = LinearLayout.VERTICAL
                 addView(text(title, 15f, INK, true))
                 addView(text(desc, 13f, MUTED), lpMatch(ViewGroup.LayoutParams.WRAP_CONTENT, top = 4))
-                addView(remoteImage(course.imageUrl), lpMatch(dp(136), top = 16))
+                addView(remoteImage(imageUrl), lpMatch(dp(136), top = 16))
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                 marginStart = dp(12)
             })
@@ -1437,7 +1490,7 @@ class MainActivity : AppCompatActivity() {
                 setTextColor(if (savedCourseIds.contains(currentHero().id)) Color.WHITE else INK)
                 background = rounded(if (savedCourseIds.contains(currentHero().id)) ACCENT else SOFT, 999)
                 setOnClickListener {
-                    toggleSaved(currentHero().id)
+                    toggleSaved(currentHero())
                     val saved = savedCourseIds.contains(currentHero().id)
                     text = if (saved) "♥" else action
                     setTextColor(if (saved) Color.WHITE else INK)
@@ -1494,10 +1547,14 @@ class MainActivity : AppCompatActivity() {
             textSize = 12f
             gravity = Gravity.CENTER
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(if (active) Color.WHITE else MUTED)
-            background = rounded(if (active) ACCENT else Color.WHITE, 999, if (active) ACCENT else SOFT, 1)
             setPadding(dp(13), 0, dp(13), 0)
+            styleFilterChip(this, active)
         }
+
+    private fun styleFilterChip(chip: TextView, active: Boolean) {
+        chip.setTextColor(if (active) Color.WHITE else MUTED)
+        chip.background = rounded(if (active) ACCENT else Color.WHITE, 999, if (active) ACCENT else SOFT, 1)
+    }
 
     private fun mapButton(label: String, onClick: () -> Unit): TextView =
         TextView(this).apply {
@@ -1567,10 +1624,11 @@ class MainActivity : AppCompatActivity() {
         moodHeroes[selectedMood] ?: moodHeroes.getValue("조용한")
 
     private fun courseById(id: String): CourseUi? =
-        moodHeroes.values.firstOrNull { it.id == id }
+        knownCourses[id] ?: moodHeroes.values.firstOrNull { it.id == id }
 
-    private fun toggleSaved(id: String) {
-        if (savedCourseIds.contains(id)) savedCourseIds.remove(id) else savedCourseIds.add(id)
+    private fun toggleSaved(course: CourseUi) {
+        knownCourses[course.id] = course
+        if (savedCourseIds.contains(course.id)) savedCourseIds.remove(course.id) else savedCourseIds.add(course.id)
     }
 
     private fun stopIcon(step: Int): String =
@@ -1580,23 +1638,60 @@ class MainActivity : AppCompatActivity() {
             else -> "🍽"
         }
 
-    private fun DateCourse.toCourseUi(id: String): CourseUi =
-        CourseUi(
+    private fun DateCourse.toCourseUiOptions(): List<CourseUi> {
+        val chunks = stops.chunked(3).filter { it.isNotEmpty() }
+        return chunks.take(3).mapIndexed { index, chunk ->
+            toCourseUi(
+                id = "generated-$index-${chunk.joinToString("|") { it.name }.hashCode()}",
+                courseStops = chunk,
+                variant = index
+            )
+        }.ifEmpty {
+            listOf(toCourseUi("generated-${stops.joinToString("|") { it.name }.hashCode()}", stops, 0))
+        }
+    }
+
+    private fun DateCourse.toCourseUi(id: String, courseStops: List<CourseStop>, variant: Int): CourseUi {
+        val localImages = moodHeroes.values.map { it.imageUrl }.toSet()
+        val generatedImage = courseStops.firstOrNull {
+            !it.imageUrl.isNullOrBlank() && it.imageUrl !in localImages
+        }?.imageUrl ?: courseStops.firstOrNull {
+            !it.imageUrl.isNullOrBlank()
+        }?.imageUrl ?: currentHero().imageUrl
+        val titlePrefix = when (variant) {
+            0 -> title
+            1 -> "$area ${selectedMood} 데이트 코스 B"
+            else -> "$area ${selectedMood} 데이트 코스 C"
+        }
+
+        return CourseUi(
             id = id,
-            title = title,
+            title = titlePrefix,
             area = area,
-            description = description,
+            description = courseIntroduction(courseStops),
             time = time,
             budget = budget,
             mood = selectedMood,
-            imageUrl = currentHero().imageUrl,
-            stops = stops.map { it.name to it.detail }.ifEmpty { currentHero().stops },
-            routeStops = stops.mapNotNull { stop ->
+            imageUrl = generatedImage,
+            stops = courseStops.map { it.name to it.detail }.ifEmpty { currentHero().stops },
+            routeStops = courseStops.mapNotNull { stop ->
                 val lat = stop.latitude ?: return@mapNotNull null
                 val lng = stop.longitude ?: return@mapNotNull null
                 MapStop(stop.name, stop.detail, lat, lng)
-            }.ifEmpty { currentHero().routeStops }
+            }.ifEmpty { currentHero().routeStops },
+            stopImageUrls = courseStops.map { it.imageUrl ?: generatedImage }
         )
+    }
+
+    private fun courseIntroduction(stops: List<CourseStop>): String {
+        val names = stops.map { it.name }.filter { it.isNotBlank() }
+        return when (names.size) {
+            0 -> "선택한 조건에 어울리는 장소를 모아 만든 추천 코스입니다."
+            1 -> "${names[0]}에서 여유롭게 즐기는 데이트 코스입니다."
+            2 -> "${names[0]}에서 시작해 ${names[1]}로 이어지는 데이트 코스입니다."
+            else -> "${names[0]}에서 시작해 ${names[1]}를 거쳐 ${names[2]}로 이어지는 코스입니다."
+        }
+    }
 
     private fun text(value: String, sp: Float, color: Int, bold: Boolean = false): TextView =
         TextView(this).apply {
@@ -1651,7 +1746,8 @@ class MainActivity : AppCompatActivity() {
         val mood: String,
         val imageUrl: String,
         val stops: List<Pair<String, String>>,
-        val routeStops: List<MapStop>
+        val routeStops: List<MapStop>,
+        val stopImageUrls: List<String> = emptyList()
     )
 
     private data class ChatQuestion(
@@ -1671,6 +1767,7 @@ class MainActivity : AppCompatActivity() {
         const val DEFAULT_SEOUL_LATITUDE = 37.5665
         const val DEFAULT_SEOUL_LONGITUDE = 126.9780
         const val LOCATION_TIMEOUT_MS = 3000L
+        const val MAX_RECENT_COURSES = 5
 
         fun photoUrl(fileName: String): String =
             "${ApiConfig.BASE_URL}/photos/$fileName"

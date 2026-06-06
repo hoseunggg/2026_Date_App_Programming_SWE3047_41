@@ -68,7 +68,7 @@
     "city": "종로구",
     "kakao_id": "8253524",
     "rating": "4.7",
-    "review_count": 207,
+    "review_count" : 207,
     "blog_count": 308
   },
   {
@@ -40318,24 +40318,6 @@
     "rating": "2.8",
     "review_count": 20,
     "blog_count": 91
-  },
-  {
-    "title": "경기상상캠퍼스",
-    "category": "문화,예술>복합문화공간",
-    "address": "경기도 수원시 권선구 서둔동 103-25 경기상상캠퍼스",
-    "roadAddress": "경기도 수원시 권선구 서둔로 166 경기상상캠퍼스",
-    "link": "https://sscampus.ggcf.kr",
-    "x": "1269824383",
-    "y": "372658392",
-    "phone": "",
-    "naverPlaceId": null,
-    "rankScore": 2,
-    "region": "경기도",
-    "city": "수원시",
-    "kakao_id": "1982560219",
-    "rating": "4.3",
-    "review_count": 17,
-    "blog_count": 894
   },
   {
     "title": "경기아트센터",

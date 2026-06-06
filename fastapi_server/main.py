@@ -71,6 +71,7 @@ class SearchIntent(BaseModel):
     mood: str = "조용한"
     budget: str = "3~5만원"
     transport: str = "도보"
+    metaTags: list[str] = []
     keywords: list[str] = []
     preferredCategories: list[str] = []
     avoidCategories: list[str] = []
@@ -92,7 +93,12 @@ def recommend_course(request: CourseRequest, http_request: Request):
 
 
 def build_course(request: CourseRequest, base_url: str, use_ai: bool = True) -> DateCourse:
-    intent = infer_search_intent(request) if use_ai and gemini_api_key() else fallback_intent(request)
+    intent = fallback_intent(request)
+    if use_ai and gemini_api_key():
+        try:
+            intent = infer_search_intent(request)
+        except Exception as error:
+            print(f"Gemini intent fallback: {error}")
     places = choose_places_by_intent(intent)
     stops = [
         place_to_stop(place, index, base_url)
@@ -162,9 +168,10 @@ def infer_search_intent(request: CourseRequest) -> SearchIntent:
     fallback = fallback_intent(request)
     return SearchIntent(
         area=str(data.get("area") or fallback.area),
-        mood=str(data.get("mood") or fallback.mood),
-        budget=str(data.get("budget") or fallback.budget),
-        transport=str(data.get("transport") or fallback.transport),
+        mood=request.mood,
+        budget=request.budget,
+        transport=request.transport,
+        metaTags=question_meta_tags(request),
         keywords=clean_string_list(data.get("keywords")) or fallback.keywords,
         preferredCategories=clean_string_list(data.get("preferredCategories")),
         avoidCategories=clean_string_list(data.get("avoidCategories")),
@@ -182,6 +189,7 @@ def fallback_intent(request: CourseRequest) -> SearchIntent:
         mood=request.mood,
         budget=request.budget,
         transport=request.transport,
+        metaTags=question_meta_tags(request),
         keywords=list(dict.fromkeys([item for item in keywords if item])),
         preferredCategories=MOOD_CATEGORY_KEYWORDS.get(request.mood, []),
         avoidCategories=[],
@@ -194,11 +202,35 @@ def clean_string_list(value) -> list[str]:
     return [str(item).strip() for item in value if str(item).strip()][:8]
 
 
+def question_meta_tags(request: CourseRequest) -> list[str]:
+    return [request.mood, request.budget, request.transport]
+
+
+def place_meta_tags(place: dict) -> set[str]:
+    text = f"{place.get('title', '')} {place.get('category', '')}"
+    tags: set[str] = set()
+
+    for mood, keywords in MOOD_CATEGORY_KEYWORDS.items():
+        if any(keyword in text for keyword in keywords):
+            tags.add(mood)
+
+    for budget, keywords in BUDGET_CATEGORY_KEYWORDS.items():
+        if any(keyword in text for keyword in keywords):
+            tags.add(budget)
+
+    for transport, keywords in TRANSPORT_CATEGORY_KEYWORDS.items():
+        if any(keyword in text for keyword in keywords):
+            tags.add(transport)
+
+    return tags
+
+
 def gemini_intent_prompt(request: CourseRequest) -> str:
     return f"""
 너는 한국 데이트 코스 추천 앱의 검색 의도 분석기다.
-사용자의 자연어 요청에서 빠진 조건을 합리적으로 보강해 실제 장소 데이터 검색 조건으로 변환한다.
+사용자의 자연어 요청에서 지역과 추가 검색 키워드를 보강해 실제 장소 데이터 검색 조건으로 변환한다.
 실제 장소 이름을 새로 만들지 말고, 지역/분위기/키워드/카테고리만 추론한다.
+사용자가 질문에서 선택한 분위기/예산/이동수단은 절대 변경하지 않는다.
 응답은 JSON만 반환한다.
 
 사용자 요청: {request.prompt}
@@ -230,7 +262,7 @@ def choose_places_by_intent(intent: SearchIntent) -> list[dict]:
         key=lambda place: score_place_by_intent(place, intent),
         reverse=True,
     )
-    return diversify(ranked, count=3)
+    return diversify(ranked, count=9)
 
 
 def score_place_by_intent(place: dict, intent: SearchIntent) -> float:
@@ -257,6 +289,15 @@ def score_place_by_intent(place: dict, intent: SearchIntent) -> float:
         if keyword in category or keyword in title:
             score += 18
 
+    place_tags = place_meta_tags(place)
+    for tag in intent.metaTags:
+        if tag in place_tags:
+            score += 42
+
+    for keyword in BUDGET_AVOID_KEYWORDS.get(intent.budget, []):
+        if keyword in category or keyword in title:
+            score -= 35
+
     score += safe_float(place.get("rating")) * 10
     score += min(int(place.get("review_count") or 0), 1000) / 50
     score += min(int(place.get("blog_count") or 0), 3000) / 150
@@ -274,6 +315,14 @@ def places(q: str | None = None, city: str | None = None, limit: int = 30, reque
 
     base_url = str(request.base_url).rstrip("/") if request else ""
     return [public_place(place, base_url) for place in items[:limit]]
+
+
+@app.get("/places/search")
+def search_places(query: str, limit: int = 10, request: Request = None):
+    base_url = str(request.base_url).rstrip("/") if request else ""
+    limit = max(1, min(limit, 10))
+    matches = places_by_region_keyword(query, limit)
+    return [public_place(place, base_url) for place in matches]
 
 
 @app.get("/places/nearby")
@@ -333,6 +382,58 @@ def photo_ready_places() -> list[dict]:
             item["imageFiles"] = photos
             ready.append(item)
     return ready
+
+
+def places_by_region_keyword(keyword: str, limit: int) -> list[dict]:
+    keyword = keyword.strip()
+    if not keyword:
+        return []
+
+    matches: list[dict] = []
+    seen: set[str] = set()
+
+    for place in photo_ready_places():
+        if matches_region_keyword(place, keyword):
+            matches.append(place)
+            seen.add(place_serial(place))
+
+    for place in load_places():
+        serial = place_serial(place)
+        if serial in seen:
+            continue
+        if matches_region_keyword(place, keyword):
+            matches.append(place)
+
+    normalized = keyword.casefold()
+    city_matches = [
+        place for place in matches
+        if normalized in str(place.get("city") or "").casefold()
+    ]
+    if city_matches:
+        return city_matches[:limit]
+
+    return spread_places_by_city(matches, limit)
+
+
+def spread_places_by_city(places: list[dict], limit: int) -> list[dict]:
+    grouped: dict[str, list[dict]] = {}
+    for place in places:
+        grouped.setdefault(str(place.get("city") or ""), []).append(place)
+
+    selected: list[dict] = []
+    index = 0
+    while len(selected) < limit:
+        added = False
+        for city_places in grouped.values():
+            if index < len(city_places):
+                selected.append(city_places[index])
+                added = True
+                if len(selected) == limit:
+                    return selected
+        if not added:
+            break
+        index += 1
+    return selected
 
 
 def choose_places(area: str, mood: str) -> list[dict]:
@@ -440,6 +541,15 @@ def contains(place: dict, keyword: str) -> bool:
     return keyword in haystack
 
 
+def matches_region_keyword(place: dict, keyword: str) -> bool:
+    normalized = keyword.casefold()
+    haystack = " ".join(
+        str(place.get(key) or "")
+        for key in ("region", "city")
+    ).casefold()
+    return normalized in haystack
+
+
 def place_serial(place: dict) -> str:
     return f"{place.get('y', '')}{place.get('x', '')}"
 
@@ -504,6 +614,9 @@ AREA_KEYWORDS = [
     "서초",
     "송파",
     "여의도",
+    "수원",
+    "경기",
+    "경기도",
     "부산",
     "제주",
     "경주",
@@ -518,4 +631,24 @@ MOOD_CATEGORY_KEYWORDS = {
     "사진 찍기": ["궁궐", "광장", "공원", "전시", "미술관", "거리", "해변"],
     "야경": ["타워", "전망", "한강", "공원", "광장", "도시"],
     "가성비": ["시장", "공원", "산책", "거리", "박물관"],
+    "활동적인": ["체험", "테마", "스포츠", "놀이", "공원", "거리", "시장", "복합문화공간"],
+    "감성 카페": ["카페", "디저트", "거리", "복합문화공간", "갤러리"],
+}
+
+BUDGET_CATEGORY_KEYWORDS = {
+    "2만원 이하": ["공원", "산책", "거리", "시장", "박물관", "도서관", "궁궐", "광장", "해변"],
+    "3~5만원": ["카페", "디저트", "미술관", "전시", "체험", "복합문화공간", "음식점"],
+    "7만원 이상": ["호텔", "리조트", "백화점", "골프", "레스토랑", "아쿠아리움", "테마파크"],
+}
+
+BUDGET_AVOID_KEYWORDS = {
+    "2만원 이하": ["호텔", "리조트", "골프", "백화점", "레스토랑"],
+    "3~5만원": [],
+    "7만원 이상": [],
+}
+
+TRANSPORT_CATEGORY_KEYWORDS = {
+    "도보": ["공원", "산책", "거리", "시장", "광장", "궁궐"],
+    "지하철": ["미술관", "박물관", "전시", "백화점", "시장", "복합문화공간"],
+    "드라이브": ["전망", "호수", "해변", "수목원", "휴양림", "테마", "아쿠아리움", "공원"],
 }

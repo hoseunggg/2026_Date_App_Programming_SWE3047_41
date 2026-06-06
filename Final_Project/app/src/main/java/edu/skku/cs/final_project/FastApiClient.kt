@@ -46,7 +46,7 @@ object FastApiClient {
         return parsePlaces(JSONArray(json))
     }
 
-    fun searchPlaces(query: String, limit: Int = 20): List<NearbyPlace> {
+    fun searchPlaces(query: String, limit: Int = 10): List<NearbyPlace> {
         val encoded = URLEncoder.encode(query, "UTF-8")
         val json = get("/places/search?query=$encoded&limit=$limit")
         return parsePlaces(JSONArray(json))

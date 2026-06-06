@@ -68,6 +68,16 @@ class MapActivity : AppCompatActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT
             ))
 
+            addView(Ui.centeredText(context, "‹", 30f, Ui.INK, true).apply {
+                contentDescription = "지도 나가기"
+                background = Ui.bg(0xf2ffffff.toInt(), Ui.dp(context, 22), Ui.SOFT, Ui.dp(context, 1))
+                elevation = Ui.dp(context, 10).toFloat()
+                setOnClickListener { finish() }
+            }, FrameLayout.LayoutParams(Ui.dp(context, 48), Ui.dp(context, 48), Gravity.TOP or Gravity.START).apply {
+                leftMargin = Ui.dp(context, 16)
+                topMargin = Ui.dp(context, 18)
+            })
+
             addView(LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(Ui.dp(context, 16), Ui.dp(context, 14), Ui.dp(context, 16), Ui.dp(context, 16))
@@ -84,6 +94,12 @@ class MapActivity : AppCompatActivity() {
                     setOnClickListener { openKakaoMapRoute() }
                 }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(context, 46)).apply {
                     topMargin = Ui.dp(context, 12)
+                })
+                addView(Ui.centeredText(context, "나가기", 14f, Ui.INK, true).apply {
+                    background = Ui.bg(Ui.WHITE, Ui.dp(context, 18), Ui.SOFT, Ui.dp(context, 1))
+                    setOnClickListener { finish() }
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(context, 46)).apply {
+                    topMargin = Ui.dp(context, 8)
                 })
             }, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
